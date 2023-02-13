@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>WebXR Markerless AR Navigation Example</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+    <script src="https://cdn.rawgit.com/jeromeetienne/AR.js/2.2.0/aframe/build/aframe-ar.js"></script>
+  </head>
+  <body style="margin: 0; overflow: hidden;">
+    <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
+      <a-entity id="camera" camera look-controls>
+        <a-cursor></a-cursor>
+      </a-entity>
+      <a-plane id="floor" position="0 0 0" rotation="-90 0 0" width="10" height="10" color="#7BC8A4"></a-plane>
+      <a-markerhandler>
+        <a-marker type="pattern" url="marker1.patt">
+          <a-entity position="0 0 0" rotation="0 180 0">
+            <a-box position="0 0.5 0" material="color: red;"></a-box>
+          </a-entity>
+          <a-entity position="0 0.8 0" text="value: Marker 1; align: center; color: black; font: monoid;"></a-entity>
+        </a-marker>
+        <a-marker type="pattern" url="marker2.patt">
+          <a-entity position="0 0 0" rotation="0 180 0">
+            <a-sphere position="0 0.5 0" radius="0.3" material="color: blue;"></a-sphere>
+          </a-entity>
+          <a-entity position="0 0.8 0" text="value: Marker 2; align: center; color: black; font: monoid;"></a-entity>
+        </a-marker>
+        <a-marker type="pattern" url="marker3.patt">
+          <a-entity position="0 0 0" rotation="0 180 0">
+            <a-cylinder position="0 0.5 0" height="1" radius="0.5" material="color: yellow;"></a-cylinder>
+          </a-entity>
+          <a-entity position="0 0.8 0" text="value: Marker 3; align: center; color: black; font: monoid;"></a-entity>
+        </a-marker>
+      </a-markerhandler>
+      <a-entity id="menu" visible="false" position="0 1.8 -1">
+        <a-plane id="menu-bg" position="0 0 -0.1" width="1.5" height="1" color="#cccccc"></a-plane>
+        <a-entity id="menu-title" position="0 0.4 0" text="value: Select a destination; align: center; color: black; font: monoid;"></a-entity>
+        <a-entity id="menu-marker1" class="menu-item" position="-0.6 0 0" text="value: Marker 1; align: center; color: black; font: monoid;"></a-entity>
+        <a-entity id="menu-marker2" class="menu-item" position="0 0 0" text="value: Marker 2; align: center; color: black; font: monoid;"></a-entity>
+        <a-entity id="menu-marker3" class="menu-item" position="0.6 0 0" text="value: Marker 3; align: center; color: black; font: monoid;"></a-entity>
+        </a-entity>
+        <a-entity id="destination" visible="false">
+        <a-sphere id="destination-icon" position="0 0 0" radius="0.5" material="color: green;"></a-sphere>
+        <a-entity id="destination-label" position="0 0.8 0" text="value: Destination; align: center; color: black; font: monoid;"></a-entity>
+        </a-entity>
+        <a-entity id="nav-line" visible="false">
+        <a-curve id="nav-path"></a-curve>
+        <a-tube id="nav-tube" path="#nav-path" radius="0.05" material="color: red;"></a-tube>
+        </a-entity>
+        </a-scene>
+        <script>
+        AFRAME.registerComponent('ar-nav', {
+        init: function () {
+        this.el.addEventListener('markerFound', this.markerFound.bind(this));
+        this.el.addEventListener('markerLost', this.markerLost.bind(this));
+        this.destination = null;
+        this.navPath = null;
+        this.navPoints = [];
+        this.menuOpen = false;
+        this.menuItemEls = document.querySelectorAll('.menu-item');
+        this.menuItemEls.forEach(itemEl => {
+        itemEl.addEventListener('mouseenter', this.menuItemEnter.bind(this));
+        itemEl.addEventListener('mouseleave', this.menuItemLeave.bind(this));
+        itemEl.addEventListener('click', this.menuItemClick.bind(this));
+        });
+        },
+        markerFound: function (event) {
+        if (!this.destination) {
+        this.openMenu();
+        }
+        },
+        markerLost: function (event) {
+        if (this.destination) {
+        this.hideDestination();
+        this.hideNavLine();
+        }
+        },
+        openMenu: function () {
+        this.menuOpen = true;
+        document.getElementById('menu').setAttribute('visible', 'true');
+        this.el.sceneEl.querySelector('#camera').setAttribute('look-controls', 'enabled', false);
+        },
+        closeMenu: function () {
+        this.menuOpen = false;
+        document.getElementById('menu').setAttribute('visible', 'false');
+        this.el.sceneEl.querySelector('#camera').setAttribute('look-controls', 'enabled', true);
+        },
+        menuItemEnter: function (event) {
+        event.target.setAttribute('material', 'color', '#555555');
+        },
+        menuItemLeave: function (event) {
+        event.target.setAttribute('material', 'color', 'black');
+        },
+        menuItemClick: function (event) {
+        let markerId = event.target.id.replace('menu-marker', '');
+        this.setDestination(marker${markerId});
+        this.closeMenu();
+        },
+        setDestination: function (markerId) {
+        this.destination = this.el.sceneEl.querySelector(#${markerId});
+        this.showDestination();
+        this.calculateNavPath();
+        this.showNavLine();
+        },
+        showDestination: function () {
+        this.destination.setAttribute('visible', 'true');
+        },
+        hideDestination: function () {
+        this.destination.setAttribute('visible', 'false');
+        this.destination = null;
+        },
+        calculateNavPath: function () {
+        this.navPath = document.createElement('a-curve');
+        this.navPoints = [];
+        let cameraPos = this.el.sceneEl.querySelector('#camera').getAttribute('position');
+        let destinationPos = this.destination.getAttribute ('position');
+let navPoint1 = {x: cameraPos.x, y: cameraPos.y, z: cameraPos.z};
+let navPoint2 = {x: cameraPos.x + 1, y: cameraPos.y, z: cameraPos.z};
+let navPoint3 = {x: destinationPos.x + 1, y: destinationPos.y, z: destinationPos.z};
+let navPoint4 = {x: destinationPos.x, y: destinationPos.y, z: destinationPos.z};
+this.navPoints.push(navPoint1, navPoint2, navPoint3, navPoint4);
+this.navPoints.forEach(navPoint => {
+this.navPath.appendChild(document.createElement('a-curve-point')).setAttribute('position', ${navPoint.x} ${navPoint.y} ${navPoint.z});
+});
+},
+showNavLine: function () {
+this.el.sceneEl.querySelector('#nav-line').setAttribute('visible', 'true');
+},
+hideNavLine: function () {
+this.el.sceneEl.querySelector('#nav-line').setAttribute('visible', 'false');
+this.navPath = null;
+this.navPoints = [];
+},
+tick: function () {
+if (this.destination && this.navPath) {
+let navPoint = this.navPath.getPoint(0);
+this.navPath.getPoints().forEach((point, i) => {
+if (i > 0) {
+let dist = navPoint.distanceTo(point);
+if (dist > 0.05) {
+navPoint = point;
+this.el.sceneEl.querySelector('#destination-icon').setAttribute('position', point);
+}
+}
+});
+}
+}
+});
+</script>
+
+  </body>
+</html>
