@@ -1,152 +1,184 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>WebXR Markerless AR Navigation Example</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
-    <script src="https://cdn.rawgit.com/jeromeetienne/AR.js/2.2.0/aframe/build/aframe-ar.js"></script>
-  </head>
-  <body style="margin: 0; overflow: hidden;">
-    <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
-      <a-entity id="camera" camera look-controls>
-        <a-cursor></a-cursor>
-      </a-entity>
-      <a-plane id="floor" position="0 0 0" rotation="-90 0 0" width="10" height="10" color="#7BC8A4"></a-plane>
-      <a-markerhandler>
-        <a-marker type="pattern" url="marker1.patt">
-          <a-entity position="0 0 0" rotation="0 180 0">
-            <a-box position="0 0.5 0" material="color: red;"></a-box>
-          </a-entity>
-          <a-entity position="0 0.8 0" text="value: Marker 1; align: center; color: black; font: monoid;"></a-entity>
-        </a-marker>
-        <a-marker type="pattern" url="marker2.patt">
-          <a-entity position="0 0 0" rotation="0 180 0">
-            <a-sphere position="0 0.5 0" radius="0.3" material="color: blue;"></a-sphere>
-          </a-entity>
-          <a-entity position="0 0.8 0" text="value: Marker 2; align: center; color: black; font: monoid;"></a-entity>
-        </a-marker>
-        <a-marker type="pattern" url="marker3.patt">
-          <a-entity position="0 0 0" rotation="0 180 0">
-            <a-cylinder position="0 0.5 0" height="1" radius="0.5" material="color: yellow;"></a-cylinder>
-          </a-entity>
-          <a-entity position="0 0.8 0" text="value: Marker 3; align: center; color: black; font: monoid;"></a-entity>
-        </a-marker>
-      </a-markerhandler>
-      <a-entity id="menu" visible="false" position="0 1.8 -1">
-        <a-plane id="menu-bg" position="0 0 -0.1" width="1.5" height="1" color="#cccccc"></a-plane>
-        <a-entity id="menu-title" position="0 0.4 0" text="value: Select a destination; align: center; color: black; font: monoid;"></a-entity>
-        <a-entity id="menu-marker1" class="menu-item" position="-0.6 0 0" text="value: Marker 1; align: center; color: black; font: monoid;"></a-entity>
-        <a-entity id="menu-marker2" class="menu-item" position="0 0 0" text="value: Marker 2; align: center; color: black; font: monoid;"></a-entity>
-        <a-entity id="menu-marker3" class="menu-item" position="0.6 0 0" text="value: Marker 3; align: center; color: black; font: monoid;"></a-entity>
-        </a-entity>
-        <a-entity id="destination" visible="false">
-        <a-sphere id="destination-icon" position="0 0 0" radius="0.5" material="color: green;"></a-sphere>
-        <a-entity id="destination-label" position="0 0.8 0" text="value: Destination; align: center; color: black; font: monoid;"></a-entity>
-        </a-entity>
-        <a-entity id="nav-line" visible="false">
-        <a-curve id="nav-path"></a-curve>
-        <a-tube id="nav-tube" path="#nav-path" radius="0.05" material="color: red;"></a-tube>
-        </a-entity>
-        </a-scene>
-        <script>
-        AFRAME.registerComponent('ar-nav', {
+    <title>AR Navigation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+    <script src="https://cdn.rawgit.com/donmccurdy/aframe-extras/v6.0.0/dist/aframe-extras.min.js"></script>
+    <script src="https://threejs.org/build/three.min.js"></script>
+    <script src="https://threejs.org/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.rawgit.com/mrdoob/three.js/r110/examples/js/loaders/HDRCubeTextureLoader.js"></script>
+    <script>
+      AFRAME.registerComponent('ar-navigation', {
         init: function () {
-        this.el.addEventListener('markerFound', this.markerFound.bind(this));
-        this.el.addEventListener('markerLost', this.markerLost.bind(this));
-        this.destination = null;
-        this.navPath = null;
-        this.navPoints = [];
-        this.menuOpen = false;
-        this.menuItemEls = document.querySelectorAll('.menu-item');
-        this.menuItemEls.forEach(itemEl => {
-        itemEl.addEventListener('mouseenter', this.menuItemEnter.bind(this));
-        itemEl.addEventListener('mouseleave', this.menuItemLeave.bind(this));
-        itemEl.addEventListener('click', this.menuItemClick.bind(this));
-        });
+          this.destinationPoints = [];
+          this.navPath = null;
+          this.navPoints = [];
+          this.camera = null;
+          this.envMap = null;
+          this.obstacleMap = null;
+          this.obstacleDetector = null;
+          this.loader = new THREE.GLTFLoader();
+          this.loader.setCrossOrigin('anonymous');
+          this.initEnvironmentMap();
+          this.initObstacleDetector();
+          this.el.sceneEl.addEventListener('click', this.onScreenClick.bind(this));
         },
-        markerFound: function (event) {
-        if (!this.destination) {
-        this.openMenu();
+        initEnvironmentMap: function () {
+          let loader = new THREE.HDRCubeTextureLoader();
+          let hdrUrls = ['px.hdr', 'nx.hdr', 'py.hdr', 'ny.hdr', 'pz.hdr', 'nz.hdr'];
+          loader.load(THREE.UnsignedByteType, hdrUrls, this.onEnvironmentMapLoaded.bind(this));
+        },
+        onEnvironmentMapLoaded: function (texture) {
+          texture.encoding = THREE.RGBM16Encoding;
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          texture.format = THREE.RGBAFormat;
+          texture.generateMipmaps = false;
+          this.envMap = texture;
+        },
+        initObstacleDetector: function () {
+          this.obstacleMap = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+            format: THREE.RGBFormat,
+            depthBuffer: true,
+            stencilBuffer: false
+          });
+          this.obstacleDetector = new THREE.Object3D();
+          this.el.sceneEl.object3D.add(this.obstacleDetector);
+        },
+        onScreenClick: function (event) {
+          let camera = this.el.sceneEl.camera;
+          let raycaster = new THREE.Raycaster();
+          let mouse = new THREE.Vector2();
+          mouse.x = (event.detail.clientX / window.innerWidth) * 2 - 1;
+          mouse.y = - (event.detail.clientY / window.innerHeight) * 2 + 1;
+          raycaster.setFromCamera(mouse, camera);
+          let intersects = raycaster.intersectObjects(this.obstacleDetector.children, true);
+          if (intersects.length > 0       ) {
+        // Clicked on an obstacle, generate new path to avoid it
+        let obstaclePos = intersects[0].point;
+        this.generateNewPath(obstaclePos);
+      } else {
+        // Clicked on a clear path, add destination point
+        let pos = new THREE.Vector3();
+        pos.copy(camera.el.object3D.position);
+        let rot = new THREE.Euler();
+        rot.copy(camera.el.object3D.rotation);
+        let dest = { position: pos, rotation: rot };
+        this.addDestinationPoint(dest);
+      }
+    },
+    addDestinationPoint: function (dest) {
+      let point = this.createDestinationPoint(dest);
+      this.destinationPoints.push(dest);
+      this.navPoints.push(point);
+      this.updateNavigationPath();
+    },
+    createDestinationPoint: function (dest) {
+      let point = new THREE.Object3D();
+      this.loader.load('destination.glb', function (gltf) {
+        point.add(gltf.scene);
+      });
+      point.position.copy(dest.position);
+      point.rotation.copy(dest.rotation);
+      this.el.sceneEl.object3D.add(point);
+      return point;
+    },
+    updateNavigationPath: function () {
+      if (this.navPath != null) {
+        this.el.sceneEl.object3D.remove(this.navPath);
+      }
+      if (this.destinationPoints.length > 1) {
+        let points = [];
+        for (let i = 0; i < this.destinationPoints.length; i++) {
+          points.push(this.destinationPoints[i].position);
         }
-        },
-        markerLost: function (event) {
-        if (this.destination) {
-        this.hideDestination();
-        this.hideNavLine();
+        let path = this.createNavigationPath(points);
+        this.navPath = path;
+        this.el.sceneEl.object3D.add(path);
+      }
+    },
+    createNavigationPath: function (points) {
+      let curve = new THREE.CatmullRomCurve3(points);
+      let geometry = new THREE.TubeBufferGeometry(curve, points.length * 20, 0.2, 8, false);
+      let material = new THREE.MeshStandardMaterial({
+        color: 0xff0000,
+        metalness: 0.5,
+        roughness: 0.5,
+        envMap: this.envMap,
+        side: THREE.DoubleSide
+      });
+      let mesh = new THREE.Mesh(geometry, material);
+      return mesh;
+    },
+    generateNewPath: function (obstaclePos) {
+      let camera = this.el.sceneEl.camera;
+      let obstacleVec = obstaclePos.clone().sub(camera.el.object3D.position);
+      let obstacleDir = new THREE.Vector2(obstacleVec.x, obstacleVec.z).normalize();
+      let forwardVec = new THREE.Vector3();
+      camera.getWorldDirection(forwardVec);
+      let forwardDir = new THREE.Vector2(forwardVec.x, forwardVec.z).normalize();
+      let rightDir = forwardDir.clone().rotateAround(new THREE.Vector2(), -Math.PI / 2);
+      let newDest = null;
+      if (forwardDir.dot(obstacleDir) > 0) {
+        // Obstacle is in front of camera, move to the right
+        newDest = camera.el.object3D.position.clone().add(new THREE.Vector3(rightDir.x, 0, rightDir.y).multiplyScalar(5));
+      } else {
+        // Obstacle is on the right side of camera, move forward
+        newDest = camera.el.object3D.position.clone().add(new THREE.Vector3(forwardDir.x, 0, forwardDir.y).multiplyScalar(5));
+      }
+      let dest = { position: newDest, rotation: camera.el.object3D.rotation };
+      this.addDestinationPoint(dest);
+    },
+    tick: function (time, timeDelta) {
+      if (this.camera == null)       {
+        this.camera = this.el.sceneEl.camera;
+      }
+      if (this.destinationPoints.length == 0) {
+        return;
+      }
+      let point = this.destinationPoints[0];
+      let camera = this.camera;
+      let dist = camera.el.object3D.position.distanceTo(point.position);
+      if (dist < this.arrivalDistance) {
+        this.destinationPoints.shift();
+        this.el.sceneEl.object3D.remove(this.navPoints.shift());
+        this.updateNavigationPath();
+      } else {
+        let forward = new THREE.Vector3();
+        let right = new THREE.Vector3();
+        let up = new THREE.Vector3(0, 1, 0);
+        camera.getWorldDirection(forward);
+        right.crossVectors(forward, up);
+        let destinationVec = point.position.clone().sub(camera.el.object3D.position);
+        let destinationDir = new THREE.Vector2(destinationVec.x, destinationVec.z).normalize();
+        let forwardDir = new THREE.Vector2(forward.x, forward.z).normalize();
+        let rightDir = forwardDir.clone().rotateAround(new THREE.Vector2(), -Math.PI / 2);
+        let dotForward = destinationDir.dot(forwardDir);
+        let dotRight = destinationDir.dot(rightDir);
+        let rotation = new THREE.Euler();
+        if (dotForward >= 0) {
+          if (dotRight >= 0) {
+            // Move forward-right
+            rotation.set(0, -Math.PI / 4, 0);
+          } else {
+            // Move forward-left
+            rotation.set(0, Math.PI / 4, 0);
+          }
+        } else {
+          if (dotRight >= 0) {
+            // Move back-right
+            rotation.set(0, -3 * Math.PI / 4, 0);
+          } else {
+            // Move back-left
+            rotation.set(0, 3 * Math.PI / 4, 0);
+          }
         }
-        },
-        openMenu: function () {
-        this.menuOpen = true;
-        document.getElementById('menu').setAttribute('visible', 'true');
-        this.el.sceneEl.querySelector('#camera').setAttribute('look-controls', 'enabled', false);
-        },
-        closeMenu: function () {
-        this.menuOpen = false;
-        document.getElementById('menu').setAttribute('visible', 'false');
-        this.el.sceneEl.querySelector('#camera').setAttribute('look-controls', 'enabled', true);
-        },
-        menuItemEnter: function (event) {
-        event.target.setAttribute('material', 'color', '#555555');
-        },
-        menuItemLeave: function (event) {
-        event.target.setAttribute('material', 'color', 'black');
-        },
-        menuItemClick: function (event) {
-        let markerId = event.target.id.replace('menu-marker', '');
-        this.setDestination(marker${markerId});
-        this.closeMenu();
-        },
-        setDestination: function (markerId) {
-        this.destination = this.el.sceneEl.querySelector(#${markerId});
-        this.showDestination();
-        this.calculateNavPath();
-        this.showNavLine();
-        },
-        showDestination: function () {
-        this.destination.setAttribute('visible', 'true');
-        },
-        hideDestination: function () {
-        this.destination.setAttribute('visible', 'false');
-        this.destination = null;
-        },
-        calculateNavPath: function () {
-        this.navPath = document.createElement('a-curve');
-        this.navPoints = [];
-        let cameraPos = this.el.sceneEl.querySelector('#camera').getAttribute('position');
-        let destinationPos = this.destination.getAttribute ('position');
-let navPoint1 = {x: cameraPos.x, y: cameraPos.y, z: cameraPos.z};
-let navPoint2 = {x: cameraPos.x + 1, y: cameraPos.y, z: cameraPos.z};
-let navPoint3 = {x: destinationPos.x + 1, y: destinationPos.y, z: destinationPos.z};
-let navPoint4 = {x: destinationPos.x, y: destinationPos.y, z: destinationPos.z};
-this.navPoints.push(navPoint1, navPoint2, navPoint3, navPoint4);
-this.navPoints.forEach(navPoint => {
-this.navPath.appendChild(document.createElement('a-curve-point')).setAttribute('position', ${navPoint.x} ${navPoint.y} ${navPoint.z});
-});
-},
-showNavLine: function () {
-this.el.sceneEl.querySelector('#nav-line').setAttribute('visible', 'true');
-},
-hideNavLine: function () {
-this.el.sceneEl.querySelector('#nav-line').setAttribute('visible', 'false');
-this.navPath = null;
-this.navPoints = [];
-},
-tick: function () {
-if (this.destination && this.navPath) {
-let navPoint = this.navPath.getPoint(0);
-this.navPath.getPoints().forEach((point, i) => {
-if (i > 0) {
-let dist = navPoint.distanceTo(point);
-if (dist > 0.05) {
-navPoint = point;
-this.el.sceneEl.querySelector('#destination-icon').setAttribute('position', point);
-}
-}
-});
-}
-}
-});
-</script>
+        let t = timeDelta / this.moveTime;
+        camera.el.object3D.position.lerp(point.position, t);
+        camera.el.object3D.rotation.copy(rotation);
+      }
+    }
+  });
 
-  </body>
-</html>
+
